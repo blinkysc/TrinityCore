@@ -21,6 +21,10 @@
 #include "Define.h"
 #include "ItemTemplate.h"
 #include "AuctionHouseBot.h"
+#include "AuctionHouseBotData.h"
+#include <array>
+#include <unordered_map>
+#include <unordered_set>
 
 struct ItemToSell
 {
@@ -47,6 +51,14 @@ struct SellerItemQualitySharedInfo
 {
     uint32 AmountOfItems = 0;
     uint32 PriceRatio = 0;
+};
+
+// Extended seller item pool entry with weight information
+struct SellerPoolItem
+{
+    uint32 ItemId = 0;
+    uint32 ListWeight = 100;        // Weight for weighted random selection
+    DropRateTier DropTier = DropRateTier::TIER_NO_DROP;
 };
 
 class SellerConfiguration
@@ -119,6 +131,7 @@ class TC_GAME_API AuctionBotSeller : public AuctionBotAgent
 {
 public:
     typedef std::vector<uint32> ItemPool;
+    typedef std::vector<SellerPoolItem> WeightedItemPool;
 
     AuctionBotSeller();
     ~AuctionBotSeller();
@@ -133,10 +146,23 @@ public:
     void SetItemsAmountForQuality(AuctionQuality quality, uint32 val);
     void LoadConfig();
 
+    // New: Get pool statistics
+    uint32 GetItemPoolSize(uint8 quality) const;
+    uint32 GetTotalPoolSize() const;
+
 private:
     SellerConfiguration _houseConfig[MAX_AUCTION_HOUSE_TYPE];
 
+    // Original item pools (for backward compatibility)
     ItemPool _itemPool[MAX_AUCTION_QUALITY][MAX_ITEM_CLASS];
+
+    // New: Weighted item pools for improved selection
+    WeightedItemPool _weightedPool[MAX_AUCTION_QUALITY];
+    std::unordered_map<uint8, uint32> _totalWeightPerQuality;
+
+    // Force include/exclude lists
+    std::unordered_set<uint32> _forceIncludeItems;
+    std::unordered_set<uint32> _forceExcludeItems;
 
     void LoadSellerValues(SellerConfiguration& config);
     uint32 SetStat(SellerConfiguration& config);
@@ -146,6 +172,19 @@ private:
     void LoadItemsQuantity(SellerConfiguration& config);
     static uint32 GetBuyModifier(ItemTemplate const* prototype);
     static uint32 GetSellModifier(ItemTemplate const* itemProto);
+
+    // New: Enhanced item selection
+    void LoadForceIncludeExclude();
+    void BuildWeightedPools();
+    uint32 SelectWeightedItem(uint8 quality);
+    uint32 GetItemListWeight(uint32 itemId, ItemTemplate const* proto) const;
+    bool IsItemAllowedForSale(ItemTemplate const* proto) const;
+
+    // New: Use advanced pricing
+    void SetPricesOfItemAdvanced(ItemTemplate const* itemProto, AuctionHouseType houseType, uint32 stackCount, uint32& buyoutPrice, uint32& bidPrice);
+
+    bool _useWeightedSelection = false;
+    bool _useAdvancedPricing = false;
 };
 
 #endif

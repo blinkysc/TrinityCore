@@ -16,6 +16,7 @@
  */
 
 #include "AuctionHouseBotBuyer.h"
+#include "AuctionHouseBotPricing.h"
 #include "GameTime.h"
 #include "DatabaseEnv.h"
 #include "Item.h"
@@ -54,6 +55,12 @@ bool AuctionBotBuyer::Initialize()
     // load Check interval
     _checkInterval = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BUYER_RECHECK_INTERVAL) * MINUTE;
     TC_LOG_DEBUG("ahbot", "AHBot buyer interval is {} minutes", _checkInterval / MINUTE);
+
+    // Load advanced pricing setting
+    _useAdvancedPricing = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_USE_ADVANCED_PRICING) != 0;
+    if (_useAdvancedPricing)
+        TC_LOG_INFO("ahbot", "AHBot buyer using advanced pricing evaluation");
+
     return true;
 }
 
@@ -67,9 +74,17 @@ void AuctionBotBuyer::LoadConfig()
     }
 }
 
-void AuctionBotBuyer::LoadBuyerValues(BuyerConfiguration& /* config */)
+void AuctionBotBuyer::LoadBuyerValues(BuyerConfiguration& config)
 {
+    // Load advanced pricing settings
+    config.UseAdvancedPricing = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_USE_ADVANCED_PRICING) != 0;
+    config.MaxPriceRatio = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BUYER_MAX_PRICE_RATIO) / 100.0f;
+    config.GoodDealThreshold = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_BUYER_GOOD_DEAL_THRESHOLD) / 100.0f;
 
+    if (config.MaxPriceRatio < 0.1f)
+        config.MaxPriceRatio = 1.5f;
+    if (config.GoodDealThreshold < 0.1f)
+        config.GoodDealThreshold = 0.8f;
 }
 
 // Makes an AHbot buyer cycle for AH type if necessary
@@ -309,16 +324,42 @@ void AuctionBotBuyer::BuyAndBidItems(BuyerConfiguration& config)
             bidPrice = auction->startbid;
         }
 
-        BuyerItemInfo const* ahInfo = nullptr;
-        BuyerItemInfoMap::const_iterator sameItemItr = config.SameItemInfo.find(item->GetEntry());
-        if (sameItemItr != config.SameItemInfo.end())
-            ahInfo = &sameItemItr->second;
+        bool successBuy = false;
+        bool successBid = false;
 
-        TC_LOG_DEBUG("ahbot", "AHBot: Rolling for AHentry {}:", auction->Id);
+        // Use advanced pricing if enabled
+        if (_useAdvancedPricing && config.UseAdvancedPricing)
+        {
+            BuyerItemPriceInfo priceInfo = EvaluateItemPrice(item, auction, config.GetHouseType());
 
-        // Roll buy and bid chances
-        bool successBuy = RollBuyChance(ahInfo, item, auction, bidPrice);
-        bool successBid = RollBidChance(ahInfo, item, auction, bidPrice);
+            // Skip if price is too high
+            if (priceInfo.IsBadDeal && priceInfo.PriceRatio > config.MaxPriceRatio)
+            {
+                TC_LOG_DEBUG("ahbot", "AHBot: Skipping entry {} - price ratio {:.2f} exceeds max {:.2f}",
+                    auction->Id, priceInfo.PriceRatio, config.MaxPriceRatio);
+                itr->second.LastChecked = now;
+                ++itr;
+                continue;
+            }
+
+            TC_LOG_DEBUG("ahbot", "AHBot: Rolling for AHentry {} (advanced pricing, ratio {:.2f}):", auction->Id, priceInfo.PriceRatio);
+
+            successBuy = RollBuyChanceAdvanced(priceInfo, auction);
+            successBid = RollBidChanceAdvanced(priceInfo, auction, bidPrice);
+        }
+        else
+        {
+            BuyerItemInfo const* ahInfo = nullptr;
+            BuyerItemInfoMap::const_iterator sameItemItr = config.SameItemInfo.find(item->GetEntry());
+            if (sameItemItr != config.SameItemInfo.end())
+                ahInfo = &sameItemItr->second;
+
+            TC_LOG_DEBUG("ahbot", "AHBot: Rolling for AHentry {}:", auction->Id);
+
+            // Roll buy and bid chances
+            successBuy = RollBuyChance(ahInfo, item, auction, bidPrice);
+            successBid = RollBidChance(ahInfo, item, auction, bidPrice);
+        }
 
         // If roll bidding succesfully and bid price is above buyout -> buyout
         // If roll for buying was successful but not for bid, buyout directly
@@ -415,6 +456,10 @@ void AuctionBotBuyer::BuyEntry(AuctionEntry* auction, AuctionHouseObject* auctio
 
     // Run SQLs
     CharacterDatabase.CommitTransaction(trans);
+
+    // Update statistics
+    ++_totalPurchases;
+    _totalGoldSpent += auction->buyout;
 }
 
 // Bids on the auction and does the necessary actions for bidding
@@ -443,4 +488,157 @@ void AuctionBotBuyer::PlaceBidToEntry(AuctionEntry* auction, uint32 bidPrice)
 
     // Run SQLs
     CharacterDatabase.CommitTransaction(trans);
+
+    // Update statistics
+    ++_totalBids;
+}
+
+// New methods for advanced pricing
+
+void AuctionBotBuyer::ResetStatistics()
+{
+    _totalPurchases = 0;
+    _totalBids = 0;
+    _totalGoldSpent = 0;
+}
+
+BuyerItemPriceInfo AuctionBotBuyer::EvaluateItemPrice(Item const* item, AuctionEntry const* auction, AuctionHouseType houseType) const
+{
+    BuyerItemPriceInfo result;
+    result.ItemId = item->GetEntry();
+    result.StackCount = item->GetCount();
+    result.ActualBuyoutPrice = auction->buyout;
+
+    // Get fair price from pricing engine
+    AHBotPriceResult priceResult = sAuctionBotPricing->CalculatePrice(item->GetTemplate(), item->GetCount(), houseType);
+    result.FairBuyoutPrice = priceResult.BuyoutPrice;
+
+    // Get drop tier
+    result.DropTier = sAuctionBotData->GetItemDropTier(item->GetEntry());
+
+    // Calculate price ratio
+    if (result.FairBuyoutPrice > 0 && auction->buyout > 0)
+    {
+        result.PriceRatio = float(auction->buyout) / float(result.FairBuyoutPrice);
+        result.IsGoodDeal = result.PriceRatio < 0.8f;
+        result.IsBadDeal = result.PriceRatio > 1.2f;
+    }
+    else
+    {
+        result.PriceRatio = 1.0f;
+        result.IsGoodDeal = false;
+        result.IsBadDeal = false;
+    }
+
+    return result;
+}
+
+bool AuctionBotBuyer::RollBuyChanceAdvanced(BuyerItemPriceInfo const& priceInfo, AuctionEntry const* auction)
+{
+    if (!auction->buyout)
+        return false;
+
+    // Base chance based on price ratio
+    // Good deals have higher chance, bad deals have lower chance
+    float baseChance;
+    if (priceInfo.PriceRatio <= 0.5f)
+        baseChance = 90.0f;  // Very good deal
+    else if (priceInfo.PriceRatio <= 0.8f)
+        baseChance = 70.0f;  // Good deal
+    else if (priceInfo.PriceRatio <= 1.0f)
+        baseChance = 50.0f;  // Fair price
+    else if (priceInfo.PriceRatio <= 1.2f)
+        baseChance = 25.0f;  // Slightly overpriced
+    else if (priceInfo.PriceRatio <= 1.5f)
+        baseChance = 10.0f;  // Overpriced
+    else
+        baseChance = 2.0f;   // Very overpriced
+
+    // Apply drop tier modifier - more likely to buy rare items
+    float tierModifier = GetDropTierBuyChanceModifier(priceInfo.DropTier);
+    float chance = baseChance * tierModifier;
+
+    // If a player has bidded on item, reduce chance
+    if (auction->bidder)
+        chance *= 0.2f;
+
+    // Cap chance at 95%
+    chance = std::min(chance, 95.0f);
+
+    float roll = frand(0.f, 100.f);
+    bool win = roll <= chance;
+
+    TC_LOG_DEBUG("ahbot", "AHBot: {} BUY (advanced)! chance = {:.2f}, priceRatio = {:.2f}, tier = {}",
+        win ? "WIN" : "LOSE", chance, priceInfo.PriceRatio, static_cast<uint8>(priceInfo.DropTier));
+
+    return win;
+}
+
+bool AuctionBotBuyer::RollBidChanceAdvanced(BuyerItemPriceInfo const& priceInfo, AuctionEntry const* auction, uint32 bidPrice)
+{
+    // Calculate bid price ratio against fair price
+    float bidPriceRatio = 1.0f;
+    if (priceInfo.FairBuyoutPrice > 0)
+        bidPriceRatio = float(bidPrice) / float(priceInfo.FairBuyoutPrice);
+
+    // Base chance based on bid price ratio
+    float baseChance;
+    if (bidPriceRatio <= 0.3f)
+        baseChance = 80.0f;  // Very low bid
+    else if (bidPriceRatio <= 0.5f)
+        baseChance = 60.0f;  // Low bid
+    else if (bidPriceRatio <= 0.7f)
+        baseChance = 40.0f;  // Moderate bid
+    else if (bidPriceRatio <= 0.9f)
+        baseChance = 25.0f;  // Fair bid
+    else
+        baseChance = 10.0f;  // High bid
+
+    // Apply drop tier modifier
+    float tierModifier = GetDropTierBuyChanceModifier(priceInfo.DropTier);
+    float chance = baseChance * tierModifier;
+
+    // If a player has bidded on item, reduce chance significantly
+    if (auction->bidder && !sAuctionBotConfig->IsBotChar(auction->bidder))
+        chance *= 0.2f;
+
+    // Cap chance at 90%
+    chance = std::min(chance, 90.0f);
+
+    float roll = frand(0.f, 100.f);
+    bool win = roll <= chance;
+
+    TC_LOG_DEBUG("ahbot", "AHBot: {} BID (advanced)! chance = {:.2f}, bidRatio = {:.2f}, tier = {}",
+        win ? "WIN" : "LOSE", chance, bidPriceRatio, static_cast<uint8>(priceInfo.DropTier));
+
+    return win;
+}
+
+float AuctionBotBuyer::GetDropTierBuyChanceModifier(DropRateTier tier) const
+{
+    // Rarer items get higher buy chance modifier
+    switch (tier)
+    {
+        case DropRateTier::TIER_50_PERCENT:
+        case DropRateTier::TIER_10_PERCENT:
+            return 0.8f;  // Common items - lower priority
+        case DropRateTier::TIER_5_PERCENT:
+        case DropRateTier::TIER_2_PERCENT:
+            return 1.0f;  // Normal items
+        case DropRateTier::TIER_1_PERCENT:
+        case DropRateTier::TIER_0_5_PERCENT:
+            return 1.2f;  // Uncommon items
+        case DropRateTier::TIER_0_2_PERCENT:
+        case DropRateTier::TIER_0_1_PERCENT:
+            return 1.5f;  // Rare items
+        case DropRateTier::TIER_0_05_PERCENT:
+        case DropRateTier::TIER_0_02_PERCENT:
+            return 1.8f;  // Very rare items
+        case DropRateTier::TIER_0_01_PERCENT:
+        case DropRateTier::TIER_0_005_PERCENT:
+            return 2.0f;  // Extremely rare items
+        case DropRateTier::TIER_NO_DROP:
+        default:
+            return 1.0f;  // Unknown rarity
+    }
 }

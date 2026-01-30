@@ -17,8 +17,12 @@
 
 #include "ScriptMgr.h"
 #include "AuctionHouseBot.h"
+#include "AuctionHouseBotData.h"
+#include "AuctionHouseBotFilter.h"
+#include "AuctionHouseBotPricing.h"
 #include "Chat.h"
 #include "Language.h"
+#include "ObjectMgr.h"
 #include "RBAC.h"
 
 using namespace Trinity::ChatCommands;
@@ -33,6 +37,49 @@ static std::unordered_map<AuctionQuality, uint32> const ahbotQualityLangIds =
     { AUCTION_QUALITY_ORANGE, LANG_AHBOT_QUALITY_ORANGE },
     { AUCTION_QUALITY_YELLOW, LANG_AHBOT_QUALITY_YELLOW }
 };
+
+// Helper function to get drop tier name
+static char const* GetDropTierName(DropRateTier tier)
+{
+    switch (tier)
+    {
+        case DropRateTier::TIER_50_PERCENT:     return ">=50%";
+        case DropRateTier::TIER_10_PERCENT:     return ">=10%";
+        case DropRateTier::TIER_5_PERCENT:      return ">=5%";
+        case DropRateTier::TIER_2_PERCENT:      return ">=2%";
+        case DropRateTier::TIER_1_PERCENT:      return ">=1%";
+        case DropRateTier::TIER_0_5_PERCENT:    return ">=0.5%";
+        case DropRateTier::TIER_0_2_PERCENT:    return ">=0.2%";
+        case DropRateTier::TIER_0_1_PERCENT:    return ">=0.1%";
+        case DropRateTier::TIER_0_05_PERCENT:   return ">=0.05%";
+        case DropRateTier::TIER_0_02_PERCENT:   return ">=0.02%";
+        case DropRateTier::TIER_0_01_PERCENT:   return ">=0.01%";
+        case DropRateTier::TIER_0_005_PERCENT:  return "<0.01%";
+        case DropRateTier::TIER_NO_DROP:        return "No drop data";
+        default:                                return "Unknown";
+    }
+}
+
+// Helper function to get filter reason name
+static char const* GetFilterReasonName(AHBotFilterReason reason)
+{
+    switch (reason)
+    {
+        case AHBotFilterReason::FILTER_REASON_OK:                return "OK";
+        case AHBotFilterReason::FILTER_REASON_BLACKLISTED:       return "Blacklisted";
+        case AHBotFilterReason::FILTER_REASON_QUALITY_TOO_LOW:   return "Quality too low";
+        case AHBotFilterReason::FILTER_REASON_QUALITY_TOO_HIGH:  return "Quality too high";
+        case AHBotFilterReason::FILTER_REASON_BINDING:           return "Binding type";
+        case AHBotFilterReason::FILTER_REASON_PRICE_TOO_LOW:     return "Price too low";
+        case AHBotFilterReason::FILTER_REASON_PRICE_TOO_HIGH:    return "Price too high";
+        case AHBotFilterReason::FILTER_REASON_LEVEL_TOO_LOW:     return "Level too low";
+        case AHBotFilterReason::FILTER_REASON_LEVEL_TOO_HIGH:    return "Level too high";
+        case AHBotFilterReason::FILTER_REASON_NAME_FILTERED:     return "Name filtered";
+        case AHBotFilterReason::FILTER_REASON_CLASS_DISABLED:    return "Class disabled";
+        case AHBotFilterReason::FILTER_REASON_NOT_TRADEABLE:     return "Not tradeable";
+        default:                                                 return "Unknown";
+    }
+}
 
 class ahbot_commandscript : public CommandScript
 {
@@ -61,13 +108,27 @@ public:
             { "",           HandleAHBotItemsRatioCommand,                                   rbac::RBAC_PERM_COMMAND_AHBOT_RATIO,            Console::Yes },
         };
 
+        static ChatCommandTable ahbotBlacklistCommandTable =
+        {
+            { "add",        HandleAHBotBlacklistAddCommand,     rbac::RBAC_PERM_COMMAND_AHBOT_REBUILD,      Console::Yes },
+            { "remove",     HandleAHBotBlacklistRemoveCommand,  rbac::RBAC_PERM_COMMAND_AHBOT_REBUILD,      Console::Yes },
+            { "check",      HandleAHBotBlacklistCheckCommand,   rbac::RBAC_PERM_COMMAND_AHBOT_STATUS,       Console::Yes },
+        };
+
         static ChatCommandTable ahbotCommandTable =
         {
             { "items",      ahbotItemsAmountCommandTable },
             { "ratio",      ahbotItemsRatioCommandTable },
+            { "blacklist",  ahbotBlacklistCommandTable },
             { "rebuild",    HandleAHBotRebuildCommand,  rbac::RBAC_PERM_COMMAND_AHBOT_REBUILD,  Console::Yes },
             { "reload",     HandleAHBotReloadCommand,   rbac::RBAC_PERM_COMMAND_AHBOT_RELOAD,   Console::Yes },
             { "status",     HandleAHBotStatusCommand,   rbac::RBAC_PERM_COMMAND_AHBOT_STATUS,   Console::Yes },
+            { "update",     HandleAHBotUpdateCommand,   rbac::RBAC_PERM_COMMAND_AHBOT_REBUILD,  Console::Yes },
+            { "empty",      HandleAHBotEmptyCommand,    rbac::RBAC_PERM_COMMAND_AHBOT_REBUILD,  Console::Yes },
+            { "price",      HandleAHBotPriceCommand,    rbac::RBAC_PERM_COMMAND_AHBOT_STATUS,   Console::Yes },
+            { "tier",       HandleAHBotTierCommand,     rbac::RBAC_PERM_COMMAND_AHBOT_STATUS,   Console::Yes },
+            { "filter",     HandleAHBotFilterCommand,   rbac::RBAC_PERM_COMMAND_AHBOT_STATUS,   Console::Yes },
+            { "info",       HandleAHBotInfoCommand,     rbac::RBAC_PERM_COMMAND_AHBOT_STATUS,   Console::Yes },
         };
 
         static ChatCommandTable commandTable =
@@ -187,6 +248,267 @@ public:
         return true;
     }
 
+    // New command: Force update cycle
+    static bool HandleAHBotUpdateCommand(ChatHandler* handler, Optional<std::string> houseArg)
+    {
+        if (houseArg)
+        {
+            AuctionHouseType house;
+            std::string houseStr = *houseArg;
+            if (houseStr == "alliance")
+                house = AUCTION_HOUSE_ALLIANCE;
+            else if (houseStr == "horde")
+                house = AUCTION_HOUSE_HORDE;
+            else if (houseStr == "neutral")
+                house = AUCTION_HOUSE_NEUTRAL;
+            else
+            {
+                handler->SendSysMessage("Invalid auction house type. Use: alliance, horde, or neutral");
+                return false;
+            }
+
+            sAuctionBotConfig->ForceUpdateCycle(house);
+            handler->PSendSysMessage("AHBot: Forced update cycle for %s auction house", AuctionBotConfig::GetHouseTypeName(house));
+        }
+        else
+        {
+            // Update all houses
+            for (uint8 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+                sAuctionBotConfig->ForceUpdateCycle(AuctionHouseType(i));
+            handler->SendSysMessage("AHBot: Forced update cycle for all auction houses");
+        }
+
+        return true;
+    }
+
+    // New command: Empty bot auctions
+    static bool HandleAHBotEmptyCommand(ChatHandler* handler, Optional<std::string> houseArg)
+    {
+        if (houseArg)
+        {
+            AuctionHouseType house;
+            std::string houseStr = *houseArg;
+            if (houseStr == "alliance")
+                house = AUCTION_HOUSE_ALLIANCE;
+            else if (houseStr == "horde")
+                house = AUCTION_HOUSE_HORDE;
+            else if (houseStr == "neutral")
+                house = AUCTION_HOUSE_NEUTRAL;
+            else
+            {
+                handler->SendSysMessage("Invalid auction house type. Use: alliance, horde, or neutral");
+                return false;
+            }
+
+            uint32 count = sAuctionBotConfig->EmptyAuctions(house);
+            handler->PSendSysMessage("AHBot: Removed %u auctions from %s auction house", count, AuctionBotConfig::GetHouseTypeName(house));
+        }
+        else
+        {
+            // Empty all houses
+            uint32 total = 0;
+            for (uint8 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+                total += sAuctionBotConfig->EmptyAuctions(AuctionHouseType(i));
+            handler->PSendSysMessage("AHBot: Removed %u auctions from all auction houses", total);
+        }
+
+        return true;
+    }
+
+    // New command: Show calculated price for an item
+    static bool HandleAHBotPriceCommand(ChatHandler* handler, uint32 itemId, Optional<uint32> stackCount)
+    {
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
+        if (!proto)
+        {
+            handler->PSendSysMessage("Item %u not found", itemId);
+            return false;
+        }
+
+        uint32 stack = stackCount.value_or(1);
+        if (stack > proto->GetMaxStackSize())
+            stack = proto->GetMaxStackSize();
+        if (stack == 0)
+            stack = 1;
+
+        handler->PSendSysMessage("=== Price Calculation for [%s] (ID: %u, Stack: %u) ===", proto->Name1.c_str(), itemId, stack);
+
+        // Calculate price for each auction house type
+        for (uint8 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
+        {
+            AuctionHouseType house = AuctionHouseType(i);
+            AHBotPriceResult result = sAuctionBotPricing->CalculatePrice(proto, stack, house);
+
+            handler->PSendSysMessage("%s: Buyout: %ug %us %uc, Bid: %ug %us %uc (Base: %u, Multiplier: %.2f%s%s)",
+                AuctionBotConfig::GetHouseTypeName(house),
+                result.BuyoutPrice / GOLD, (result.BuyoutPrice % GOLD) / SILVER, result.BuyoutPrice % SILVER,
+                result.BidPrice / GOLD, (result.BidPrice % GOLD) / SILVER, result.BidPrice % SILVER,
+                result.BasePrice, result.TotalMultiplier,
+                result.WasCapped ? " [CAPPED]" : "",
+                result.WasFloored ? " [FLOORED]" : "");
+        }
+
+        // Show additional info
+        handler->PSendSysMessage("Vendor Buy: %ug %us %uc, Vendor Sell: %ug %us %uc",
+            proto->BuyPrice / GOLD, (proto->BuyPrice % GOLD) / SILVER, proto->BuyPrice % SILVER,
+            proto->SellPrice / GOLD, (proto->SellPrice % GOLD) / SILVER, proto->SellPrice % SILVER);
+
+        return true;
+    }
+
+    // New command: Show drop tier for an item
+    static bool HandleAHBotTierCommand(ChatHandler* handler, uint32 itemId)
+    {
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
+        if (!proto)
+        {
+            handler->PSendSysMessage("Item %u not found", itemId);
+            return false;
+        }
+
+        DropRateTier tier = sAuctionBotData->GetItemDropTier(itemId);
+        uint32 listWeight = sAuctionBotConfig->GetDropTierListWeight(tier);
+        float priceMultiplier = sAuctionBotConfig->GetDropTierPriceMultiplier(tier);
+
+        handler->PSendSysMessage("=== Drop Tier Info for [%s] (ID: %u) ===", proto->Name1.c_str(), itemId);
+        handler->PSendSysMessage("Drop Tier: %s (Tier %u)", GetDropTierName(tier), static_cast<uint8>(tier));
+        handler->PSendSysMessage("List Weight: %u, Price Multiplier: %.2f", listWeight, priceMultiplier);
+
+        // Additional info from data manager
+        AuctionBotItemInfo const* info = sAuctionBotData->GetItemInfo(itemId);
+        if (info)
+        {
+            handler->PSendSysMessage("Max Drop Chance: %.4f%%", info->MaxDropChance);
+            handler->PSendSysMessage("Recipe Produced: %s, Quest Reward: %s, Vendor Item: %s",
+                info->IsRecipeProduced ? "Yes" : "No",
+                info->IsQuestReward ? "Yes" : "No",
+                info->IsVendorItem ? "Yes" : "No");
+        }
+        else
+        {
+            handler->SendSysMessage("No cached item info available");
+        }
+
+        return true;
+    }
+
+    // New command: Check filter status for an item
+    static bool HandleAHBotFilterCommand(ChatHandler* handler, uint32 itemId)
+    {
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
+        if (!proto)
+        {
+            handler->PSendSysMessage("Item %u not found", itemId);
+            return false;
+        }
+
+        AHBotFilterReason reason = sAuctionBotFilter->IsItemAllowed(itemId);
+
+        handler->PSendSysMessage("=== Filter Status for [%s] (ID: %u) ===", proto->Name1.c_str(), itemId);
+        handler->PSendSysMessage("Filter Result: %s", GetFilterReasonName(reason));
+
+        if (sAuctionBotData->IsItemBlacklisted(itemId))
+            handler->SendSysMessage("Item is BLACKLISTED");
+
+        handler->PSendSysMessage("Quality: %u, Class: %u, SubClass: %u",
+            proto->Quality, proto->Class, proto->SubClass);
+        handler->PSendSysMessage("ItemLevel: %u, RequiredLevel: %u",
+            proto->ItemLevel, proto->RequiredLevel);
+        handler->PSendSysMessage("Binding: %u, Max Stack: %u",
+            proto->Bonding, proto->GetMaxStackSize());
+
+        return true;
+    }
+
+    // New command: Blacklist management - add
+    static bool HandleAHBotBlacklistAddCommand(ChatHandler* handler, uint32 itemId, Optional<uint8> reason)
+    {
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
+        if (!proto)
+        {
+            handler->PSendSysMessage("Item %u not found", itemId);
+            return false;
+        }
+
+        uint8 reasonCode = reason.value_or(0);
+        sAuctionBotData->AddToBlacklist(itemId, reasonCode);
+
+        handler->PSendSysMessage("Added [%s] (ID: %u) to blacklist with reason code %u", proto->Name1.c_str(), itemId, reasonCode);
+        return true;
+    }
+
+    // New command: Blacklist management - remove
+    static bool HandleAHBotBlacklistRemoveCommand(ChatHandler* handler, uint32 itemId)
+    {
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
+        if (!proto)
+        {
+            handler->PSendSysMessage("Item %u not found", itemId);
+            return false;
+        }
+
+        sAuctionBotData->RemoveFromBlacklist(itemId);
+
+        handler->PSendSysMessage("Removed [%s] (ID: %u) from blacklist", proto->Name1.c_str(), itemId);
+        return true;
+    }
+
+    // New command: Blacklist management - check
+    static bool HandleAHBotBlacklistCheckCommand(ChatHandler* handler, uint32 itemId)
+    {
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
+        if (!proto)
+        {
+            handler->PSendSysMessage("Item %u not found", itemId);
+            return false;
+        }
+
+        bool blacklisted = sAuctionBotData->IsItemBlacklisted(itemId);
+        handler->PSendSysMessage("[%s] (ID: %u) is %sblacklisted", proto->Name1.c_str(), itemId, blacklisted ? "" : "NOT ");
+
+        return true;
+    }
+
+    // New command: Show comprehensive item info
+    static bool HandleAHBotInfoCommand(ChatHandler* handler, uint32 itemId)
+    {
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
+        if (!proto)
+        {
+            handler->PSendSysMessage("Item %u not found", itemId);
+            return false;
+        }
+
+        handler->PSendSysMessage("=== Comprehensive AHBot Info for [%s] ===", proto->Name1.c_str());
+        handler->PSendSysMessage("Item ID: %u", itemId);
+
+        // Filter status
+        AHBotFilterReason filterResult = sAuctionBotFilter->IsItemAllowed(itemId);
+        handler->PSendSysMessage("Filter: %s", GetFilterReasonName(filterResult));
+
+        // Drop tier
+        DropRateTier tier = sAuctionBotData->GetItemDropTier(itemId);
+        handler->PSendSysMessage("Drop Tier: %s", GetDropTierName(tier));
+
+        // Pricing
+        AHBotPriceResult price = sAuctionBotPricing->CalculatePrice(proto, 1, AUCTION_HOUSE_NEUTRAL);
+        handler->PSendSysMessage("Price (x1): %ug %us %uc buyout",
+            price.BuyoutPrice / GOLD, (price.BuyoutPrice % GOLD) / SILVER, price.BuyoutPrice % SILVER);
+
+        // Item properties
+        handler->PSendSysMessage("Quality: %u, Class: %u/%u, Level: %u/%u",
+            proto->Quality, proto->Class, proto->SubClass, proto->ItemLevel, proto->RequiredLevel);
+
+        // Blacklist status
+        if (sAuctionBotData->IsItemBlacklisted(itemId))
+            handler->SendSysMessage("Status: BLACKLISTED");
+        else if (filterResult == AHBotFilterReason::FILTER_REASON_OK)
+            handler->SendSysMessage("Status: ALLOWED for AH");
+        else
+            handler->SendSysMessage("Status: FILTERED OUT");
+
+        return true;
+    }
 };
 
 template bool ahbot_commandscript::HandleAHBotItemsAmountQualityCommand<AUCTION_QUALITY_GRAY>(ChatHandler* handler, uint32 amount);

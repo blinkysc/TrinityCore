@@ -16,6 +16,9 @@
  */
 
 #include "AuctionHouseBotSeller.h"
+#include "AuctionHouseBotData.h"
+#include "AuctionHouseBotFilter.h"
+#include "AuctionHouseBotPricing.h"
 #include "AuctionHouseMgr.h"
 #include "Containers.h"
 #include "DatabaseEnv.h"
@@ -47,6 +50,9 @@ bool AuctionBotSeller::Initialize()
 
     TC_LOG_DEBUG("ahbot", "AHBot seller filters:");
 
+    // Load force include/exclude lists
+    LoadForceIncludeExclude();
+
     {
         std::stringstream includeStream(sAuctionBotConfig->GetAHBotIncludes());
         std::string temp;
@@ -60,6 +66,12 @@ bool AuctionBotSeller::Initialize()
         while (std::getline(excludeStream, temp, ','))
             excludeItems.insert(atoi(temp.c_str()));
     }
+
+    // Add items from data manager force lists
+    for (uint32 itemId : _forceIncludeItems)
+        includeItems.insert(itemId);
+    for (uint32 itemId : _forceExcludeItems)
+        excludeItems.insert(itemId);
 
     TC_LOG_DEBUG("ahbot", "Forced Inclusion {} items", (uint32)includeItems.size());
     TC_LOG_DEBUG("ahbot", "Forced Exclusion {} items", (uint32)excludeItems.size());
@@ -104,6 +116,10 @@ bool AuctionBotSeller::Initialize()
     TC_LOG_DEBUG("ahbot", "Loot filter has {} items", (uint32)lootItems.size());
     TC_LOG_DEBUG("ahbot", "Sorting and cleaning items for AHBot seller...");
 
+    // Check if we should use weighted selection
+    _useWeightedSelection = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_USE_WEIGHTED_SELECTION) != 0;
+    _useAdvancedPricing = sAuctionBotConfig->GetConfig(CONFIG_AHBOT_USE_ADVANCED_PRICING) != 0;
+
     uint32 itemsAdded = 0;
 
     for (uint32 itemId = 0; itemId < sItemStore.GetNumRows(); ++itemId)
@@ -118,6 +134,14 @@ bool AuctionBotSeller::Initialize()
 
         // forced exclude filter
         if (excludeItems.count(itemId))
+            continue;
+
+        // Check blacklist from data manager
+        if (sAuctionBotData->IsItemBlacklisted(itemId))
+            continue;
+
+        // Use filter system if available
+        if (!IsItemAllowedForSale(prototype))
             continue;
 
         // forced include filter
@@ -354,6 +378,13 @@ bool AuctionBotSeller::Initialize()
     }
 
     TC_LOG_DEBUG("ahbot", "AuctionHouseBot seller will use {} items to fill auction house (according your config choices)", itemsAdded);
+
+    // Build weighted pools if weighted selection is enabled
+    if (_useWeightedSelection)
+    {
+        BuildWeightedPools();
+        TC_LOG_INFO("ahbot", "AHBot: Built weighted item pools for {} qualities", MAX_AUCTION_QUALITY);
+    }
 
     LoadConfig();
 
@@ -862,8 +893,23 @@ void AuctionBotSeller::AddNewAuctions(SellerConfiguration& config)
         // Select random position from missed items table
         ItemToSell const& sellItem = Trinity::Containers::SelectRandomContainerElement(itemsToSell);
 
-        // Set itemId with random item ID for selected categories and color, from _itemPool table
-        uint32 itemId = Trinity::Containers::SelectRandomContainerElement(_itemPool[sellItem.Color][sellItem.Itemclass]);
+        uint32 itemId = 0;
+
+        // Use weighted selection if enabled and weighted pools are available
+        if (_useWeightedSelection && !_weightedPool[sellItem.Color].empty())
+        {
+            itemId = SelectWeightedItem(sellItem.Color);
+            // Fallback to regular selection if weighted selection fails
+            if (!itemId && !_itemPool[sellItem.Color][sellItem.Itemclass].empty())
+                itemId = Trinity::Containers::SelectRandomContainerElement(_itemPool[sellItem.Color][sellItem.Itemclass]);
+        }
+        else
+        {
+            // Set itemId with random item ID for selected categories and color, from _itemPool table
+            if (!_itemPool[sellItem.Color][sellItem.Itemclass].empty())
+                itemId = Trinity::Containers::SelectRandomContainerElement(_itemPool[sellItem.Color][sellItem.Itemclass]);
+        }
+
         ++allItems[sellItem.Color][sellItem.Itemclass]; // Helper table to avoid rescan from DB in this loop. (has we add item in random orders)
 
         if (!itemId)
@@ -896,8 +942,16 @@ void AuctionBotSeller::AddNewAuctions(SellerConfiguration& config)
         uint32 buyoutPrice;
         uint32 bidPrice = 0;
 
-        // Price of items are set here
-        SetPricesOfItem(prototype, config, buyoutPrice, bidPrice, stackCount);
+        // Use advanced pricing if enabled
+        if (_useAdvancedPricing)
+        {
+            SetPricesOfItemAdvanced(prototype, config.GetHouseType(), stackCount, buyoutPrice, bidPrice);
+        }
+        else
+        {
+            // Price of items are set here
+            SetPricesOfItem(prototype, config, buyoutPrice, bidPrice, stackCount);
+        }
 
         // Deposit time
         uint32 etime = urand(1, 3);
@@ -955,4 +1009,142 @@ bool AuctionBotSeller::Update(AuctionHouseType houseType)
     }
     else
         return false;
+}
+
+// New methods for enhanced item selection
+
+uint32 AuctionBotSeller::GetItemPoolSize(uint8 quality) const
+{
+    if (quality >= MAX_AUCTION_QUALITY)
+        return 0;
+
+    if (_useWeightedSelection)
+        return static_cast<uint32>(_weightedPool[quality].size());
+
+    uint32 count = 0;
+    for (uint32 i = 0; i < MAX_ITEM_CLASS; ++i)
+        count += static_cast<uint32>(_itemPool[quality][i].size());
+
+    return count;
+}
+
+uint32 AuctionBotSeller::GetTotalPoolSize() const
+{
+    uint32 count = 0;
+    for (uint8 q = 0; q < MAX_AUCTION_QUALITY; ++q)
+        count += GetItemPoolSize(q);
+    return count;
+}
+
+void AuctionBotSeller::LoadForceIncludeExclude()
+{
+    _forceIncludeItems.clear();
+    _forceExcludeItems.clear();
+
+    // Load from database if AuctionBotDataMgr has loaded the blacklist
+    // Items in the blacklist are excluded
+    // This method can be extended to load include/exclude from dedicated tables
+}
+
+void AuctionBotSeller::BuildWeightedPools()
+{
+    // Clear existing weighted pools
+    for (uint8 q = 0; q < MAX_AUCTION_QUALITY; ++q)
+    {
+        _weightedPool[q].clear();
+        _totalWeightPerQuality[q] = 0;
+    }
+
+    // Build weighted pools from regular item pools
+    for (uint8 quality = 0; quality < MAX_AUCTION_QUALITY; ++quality)
+    {
+        for (uint32 itemClass = 0; itemClass < MAX_ITEM_CLASS; ++itemClass)
+        {
+            for (uint32 itemId : _itemPool[quality][itemClass])
+            {
+                ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
+                if (!proto)
+                    continue;
+
+                SellerPoolItem poolItem;
+                poolItem.ItemId = itemId;
+                poolItem.ListWeight = GetItemListWeight(itemId, proto);
+                poolItem.DropTier = sAuctionBotData->GetItemDropTier(itemId);
+
+                _weightedPool[quality].push_back(poolItem);
+                _totalWeightPerQuality[quality] += poolItem.ListWeight;
+            }
+        }
+
+        TC_LOG_DEBUG("ahbot", "AHBot: Quality {} weighted pool: {} items, total weight {}",
+            quality, _weightedPool[quality].size(), _totalWeightPerQuality[quality]);
+    }
+}
+
+uint32 AuctionBotSeller::SelectWeightedItem(uint8 quality)
+{
+    if (quality >= MAX_AUCTION_QUALITY || _weightedPool[quality].empty())
+        return 0;
+
+    uint32 totalWeight = _totalWeightPerQuality[quality];
+    if (totalWeight == 0)
+        return 0;
+
+    uint32 roll = urand(0, totalWeight - 1);
+    uint32 cumulative = 0;
+
+    for (SellerPoolItem const& item : _weightedPool[quality])
+    {
+        cumulative += item.ListWeight;
+        if (roll < cumulative)
+            return item.ItemId;
+    }
+
+    // Fallback - should not happen but return last item
+    return _weightedPool[quality].back().ItemId;
+}
+
+uint32 AuctionBotSeller::GetItemListWeight(uint32 itemId, ItemTemplate const* proto) const
+{
+    if (!proto)
+        return 100;
+
+    // Get base weight from drop tier
+    DropRateTier tier = sAuctionBotData->GetItemDropTier(itemId);
+    uint32 tierWeight = sAuctionBotConfig->GetDropTierListWeight(tier);
+
+    // Apply any subclass-specific multipliers if configured
+    // For now, use the tier weight directly
+    return tierWeight > 0 ? tierWeight : 100;
+}
+
+bool AuctionBotSeller::IsItemAllowedForSale(ItemTemplate const* proto) const
+{
+    if (!proto)
+        return false;
+
+    // Use the filter system if available
+    AHBotFilterReason reason = sAuctionBotFilter->IsItemAllowed(proto->ItemId);
+    return reason == AHBotFilterReason::FILTER_REASON_OK;
+}
+
+void AuctionBotSeller::SetPricesOfItemAdvanced(ItemTemplate const* itemProto, AuctionHouseType houseType, uint32 stackCount, uint32& buyoutPrice, uint32& bidPrice)
+{
+    // Use the pricing engine for advanced pricing
+    AHBotPriceResult result = sAuctionBotPricing->CalculatePrice(itemProto, stackCount, houseType);
+
+    buyoutPrice = result.BuyoutPrice;
+    bidPrice = result.BidPrice;
+
+    // Ensure minimum prices
+    if (buyoutPrice == 0)
+        buyoutPrice = 1;
+    if (bidPrice == 0)
+        bidPrice = 1;
+
+    // Log if price was capped or floored
+    if (result.WasCapped)
+        TC_LOG_DEBUG("ahbot", "AHBot: Item {} price capped at max buyout", itemProto->ItemId);
+    if (result.WasFloored)
+        TC_LOG_DEBUG("ahbot", "AHBot: Item {} price raised to minimum", itemProto->ItemId);
 }

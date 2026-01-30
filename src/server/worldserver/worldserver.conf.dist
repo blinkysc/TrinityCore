@@ -3878,6 +3878,140 @@ AuctionHouseBot.Buyer.ChanceMultiplier.Yellow = 100
 
 AuctionHouseBot.Buyer.Recheck.Interval = 20
 
+#    AuctionHouseBot.Buyer.MaxPriceRatio
+#       Description: Maximum price ratio (actual/fair) for buyer to consider an item
+#                    Value is a percentage, 150 means 1.5x fair price is the max
+#       Default:     150
+
+AuctionHouseBot.Buyer.MaxPriceRatio = 150
+
+#
+#    AuctionHouseBot.Buyer.GoodDealThreshold
+#       Description: Price ratio below which an item is considered a "good deal"
+#                    Value is a percentage, 80 means 0.8x fair price or less
+#       Default:     80
+
+AuctionHouseBot.Buyer.GoodDealThreshold = 80
+
+#
+###################################################################################################
+
+###################################################################################################
+# AUCTION HOUSE BOT ADVANCED SETTINGS
+#
+#    AuctionHouseBot.UseWeightedSelection
+#       Description: Use drop rate-based weighted selection for item listing
+#                    Rarer items appear less frequently, common items more frequently
+#       Default:     0 - (Disabled)
+#                    1 - (Enabled)
+
+AuctionHouseBot.UseWeightedSelection = 0
+
+#
+#    AuctionHouseBot.UseAdvancedPricing
+#       Description: Use advanced pricing engine with logarithmic pricing,
+#                    drop tier multipliers, and category minimum prices
+#       Default:     0 - (Disabled)
+#                    1 - (Enabled)
+
+AuctionHouseBot.UseAdvancedPricing = 0
+
+#
+#    AuctionHouseBot.Pricing.VendorFloorPercent
+#       Description: Minimum percentage of vendor sell price for auction prices
+#                    125 means at least 25% markup over vendor sell price
+#       Default:     125
+
+AuctionHouseBot.Pricing.VendorFloorPercent = 125
+
+#
+#    AuctionHouseBot.Pricing.MaxBuyoutPrice
+#       Description: Maximum buyout price in copper (hard cap)
+#                    Default 1000000000 = 100,000 gold
+#       Default:     1000000000
+
+AuctionHouseBot.Pricing.MaxBuyoutPrice = 1000000000
+
+#
+#    AuctionHouseBot.Pricing.UseLogarithmicPricing
+#       Description: Use logarithmic pricing for stackable items (bulk discount)
+#       Default:     1 - (Enabled)
+#                    0 - (Disabled)
+
+AuctionHouseBot.Pricing.UseLogarithmicPricing = 1
+
+#
+#    AuctionHouseBot.Pricing.UseDropTierPricing
+#       Description: Apply price multipliers based on item drop rarity
+#       Default:     1 - (Enabled)
+#                    0 - (Disabled)
+
+AuctionHouseBot.Pricing.UseDropTierPricing = 1
+
+#
+#    AuctionHouseBot.DropTier.Weight.*
+#       Description: List weight for each drop rate tier (higher = more likely to be listed)
+#       Default:     Tier0 (>=50%): 200, Tier1 (>=10%): 150, Tier2 (>=5%): 125,
+#                    Tier3 (>=2%): 110, Tier4 (>=1%): 100, Tier5 (>=0.5%): 85,
+#                    Tier6 (>=0.2%): 70, Tier7 (>=0.1%): 55, Tier8 (>=0.05%): 40,
+#                    Tier9 (>=0.02%): 25, Tier10 (>=0.01%): 15, Tier11 (<0.01%): 10,
+#                    TierNoDrop: 100
+
+AuctionHouseBot.DropTier.Weight.0 = 200
+AuctionHouseBot.DropTier.Weight.1 = 150
+AuctionHouseBot.DropTier.Weight.2 = 125
+AuctionHouseBot.DropTier.Weight.3 = 110
+AuctionHouseBot.DropTier.Weight.4 = 100
+AuctionHouseBot.DropTier.Weight.5 = 85
+AuctionHouseBot.DropTier.Weight.6 = 70
+AuctionHouseBot.DropTier.Weight.7 = 55
+AuctionHouseBot.DropTier.Weight.8 = 40
+AuctionHouseBot.DropTier.Weight.9 = 25
+AuctionHouseBot.DropTier.Weight.10 = 15
+AuctionHouseBot.DropTier.Weight.11 = 10
+AuctionHouseBot.DropTier.Weight.NoDrop = 100
+
+#
+#    AuctionHouseBot.DropTier.PriceMultiplier.*
+#       Description: Price multiplier for each drop rate tier (higher = more expensive)
+#       Note:        Values are percentages, 100 = 1.0x, 150 = 1.5x
+#       Default:     Tier0 (>=50%): 80, Tier1 (>=10%): 90, Tier2 (>=5%): 100,
+#                    Tier3 (>=2%): 110, Tier4 (>=1%): 125, Tier5 (>=0.5%): 150,
+#                    Tier6 (>=0.2%): 175, Tier7 (>=0.1%): 200, Tier8 (>=0.05%): 250,
+#                    Tier9 (>=0.02%): 300, Tier10 (>=0.01%): 400, Tier11 (<0.01%): 500,
+#                    TierNoDrop: 100
+
+AuctionHouseBot.DropTier.PriceMultiplier.0 = 80
+AuctionHouseBot.DropTier.PriceMultiplier.1 = 90
+AuctionHouseBot.DropTier.PriceMultiplier.2 = 100
+AuctionHouseBot.DropTier.PriceMultiplier.3 = 110
+AuctionHouseBot.DropTier.PriceMultiplier.4 = 125
+AuctionHouseBot.DropTier.PriceMultiplier.5 = 150
+AuctionHouseBot.DropTier.PriceMultiplier.6 = 175
+AuctionHouseBot.DropTier.PriceMultiplier.7 = 200
+AuctionHouseBot.DropTier.PriceMultiplier.8 = 250
+AuctionHouseBot.DropTier.PriceMultiplier.9 = 300
+AuctionHouseBot.DropTier.PriceMultiplier.10 = 400
+AuctionHouseBot.DropTier.PriceMultiplier.11 = 500
+AuctionHouseBot.DropTier.PriceMultiplier.NoDrop = 100
+
+#
+#    AuctionHouseBot.Filter.*
+#       Description: Advanced filter settings
+#       Note:        Name filter is comma-separated list of substrings to exclude
+
+AuctionHouseBot.Filter.MinQuality = 0
+AuctionHouseBot.Filter.MaxQuality = 6
+AuctionHouseBot.Filter.NameFilter = "TEST,DEBUG,OLD,DEPRECATED,UNUSED"
+AuctionHouseBot.Filter.AllowBOP = 0
+AuctionHouseBot.Filter.AllowQuestItems = 0
+AuctionHouseBot.Filter.MinVendorPrice = 0
+AuctionHouseBot.Filter.MaxVendorPrice = 0
+AuctionHouseBot.Filter.MinItemLevel = 0
+AuctionHouseBot.Filter.MaxItemLevel = 0
+AuctionHouseBot.Filter.MinRequiredLevel = 0
+AuctionHouseBot.Filter.MaxRequiredLevel = 0
+
 #
 ###################################################################################################
 

@@ -18,6 +18,9 @@
 #include "AuctionHouseBot.h"
 #include "AccountMgr.h"
 #include "AuctionHouseBotBuyer.h"
+#include "AuctionHouseBotData.h"
+#include "AuctionHouseBotFilter.h"
+#include "AuctionHouseBotPricing.h"
 #include "AuctionHouseBotSeller.h"
 #include "AuctionHouseMgr.h"
 #include "Config.h"
@@ -92,6 +95,11 @@ bool AuctionBotConfig::Initialize()
         else
             TC_LOG_WARN("ahbot", "AuctionHouseBot Account ID {} has no associated characters.", ahBotAccId);
     }
+
+    // Initialize new subsystems
+    sAuctionBotData->Initialize();
+    sAuctionBotFilter->Initialize();
+    sAuctionBotPricing->Initialize();
 
     return true;
 }
@@ -306,6 +314,120 @@ void AuctionBotConfig::GetConfigFromFile()
 
     SetConfig(CONFIG_AHBOT_BIDPRICE_MIN, "AuctionHouseBot.BidPrice.Min", 0.6f);
     SetConfig(CONFIG_AHBOT_BIDPRICE_MAX, "AuctionHouseBot.BidPrice.Max", 0.9f);
+
+    // === NEW: Drop Tier configs ===
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_50_PERCENT, "AuctionHouseBot.Tier.Weight.50Percent", 100);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_10_PERCENT, "AuctionHouseBot.Tier.Weight.10Percent", 80);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_5_PERCENT, "AuctionHouseBot.Tier.Weight.5Percent", 60);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_2_PERCENT, "AuctionHouseBot.Tier.Weight.2Percent", 40);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_1_PERCENT, "AuctionHouseBot.Tier.Weight.1Percent", 30);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_0_5_PERCENT, "AuctionHouseBot.Tier.Weight.05Percent", 20);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_0_2_PERCENT, "AuctionHouseBot.Tier.Weight.02Percent", 15);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_0_1_PERCENT, "AuctionHouseBot.Tier.Weight.01Percent", 10);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_0_05_PERCENT, "AuctionHouseBot.Tier.Weight.005Percent", 7);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_0_02_PERCENT, "AuctionHouseBot.Tier.Weight.002Percent", 5);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_0_01_PERCENT, "AuctionHouseBot.Tier.Weight.001Percent", 3);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_0_005_PERCENT, "AuctionHouseBot.Tier.Weight.0005Percent", 1);
+    SetConfig(CONFIG_AHBOT_TIER_WEIGHT_NO_DROP, "AuctionHouseBot.Tier.Weight.NoDrop", 50);
+
+    // Drop tier price multipliers
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_50_PERCENT, "AuctionHouseBot.Tier.Price.50Percent", 0.5f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_10_PERCENT, "AuctionHouseBot.Tier.Price.10Percent", 0.75f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_5_PERCENT, "AuctionHouseBot.Tier.Price.5Percent", 1.0f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_2_PERCENT, "AuctionHouseBot.Tier.Price.2Percent", 1.25f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_1_PERCENT, "AuctionHouseBot.Tier.Price.1Percent", 1.5f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_0_5_PERCENT, "AuctionHouseBot.Tier.Price.05Percent", 2.0f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_0_2_PERCENT, "AuctionHouseBot.Tier.Price.02Percent", 2.5f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_0_1_PERCENT, "AuctionHouseBot.Tier.Price.01Percent", 3.0f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_0_05_PERCENT, "AuctionHouseBot.Tier.Price.005Percent", 4.0f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_0_02_PERCENT, "AuctionHouseBot.Tier.Price.002Percent", 5.0f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_0_01_PERCENT, "AuctionHouseBot.Tier.Price.001Percent", 7.5f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_0_005_PERCENT, "AuctionHouseBot.Tier.Price.0005Percent", 10.0f);
+    SetConfig(CONFIG_AHBOT_TIER_PRICE_NO_DROP, "AuctionHouseBot.Tier.Price.NoDrop", 1.0f);
+
+    // === NEW: Pricing configs ===
+    SetConfig(CONFIG_AHBOT_PRICING_VENDOR_FLOOR_PERCENT, "AuctionHouseBot.Pricing.VendorFloor", 125);
+    SetConfig(CONFIG_AHBOT_PRICING_MAX_BUYOUT, "AuctionHouseBot.Pricing.MaxBuyout", 1000000000);
+
+    SetConfig(CONFIG_AHBOT_PRICING_VARIATION_MIN, "AuctionHouseBot.Pricing.Variation.Min", -0.15f);
+    SetConfig(CONFIG_AHBOT_PRICING_VARIATION_MAX, "AuctionHouseBot.Pricing.Variation.Max", 0.25f);
+
+    // Category minimum prices
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_CONSUMABLE, "AuctionHouseBot.Pricing.MinPrice.Consumable", 100);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_CONTAINER, "AuctionHouseBot.Pricing.MinPrice.Container", 1000);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_WEAPON, "AuctionHouseBot.Pricing.MinPrice.Weapon", 5000);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_GEM, "AuctionHouseBot.Pricing.MinPrice.Gem", 2000);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_ARMOR, "AuctionHouseBot.Pricing.MinPrice.Armor", 5000);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_REAGENT, "AuctionHouseBot.Pricing.MinPrice.Reagent", 10);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_PROJECTILE, "AuctionHouseBot.Pricing.MinPrice.Projectile", 1);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_TRADEGOOD, "AuctionHouseBot.Pricing.MinPrice.TradeGood", 50);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_RECIPE, "AuctionHouseBot.Pricing.MinPrice.Recipe", 500);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_QUIVER, "AuctionHouseBot.Pricing.MinPrice.Quiver", 500);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_QUEST, "AuctionHouseBot.Pricing.MinPrice.Quest", 100);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_KEY, "AuctionHouseBot.Pricing.MinPrice.Key", 100);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_MISC, "AuctionHouseBot.Pricing.MinPrice.Misc", 100);
+    SetConfig(CONFIG_AHBOT_PRICING_MIN_GLYPH, "AuctionHouseBot.Pricing.MinPrice.Glyph", 500);
+
+    // === NEW: Feature toggles ===
+    SetConfig(CONFIG_AHBOT_PRICING_USE_DROP_TIER, "AuctionHouseBot.Pricing.UseDropTier", true);
+    SetConfig(CONFIG_AHBOT_PRICING_USE_LOGARITHMIC, "AuctionHouseBot.Pricing.UseLogarithmic", true);
+    SetConfig(CONFIG_AHBOT_FILTER_RECIPE_PRODUCED, "AuctionHouseBot.Filter.RecipeProduced", false);
+    SetConfig(CONFIG_AHBOT_FILTER_QUEST_REWARD, "AuctionHouseBot.Filter.QuestReward", false);
+    SetConfig(CONFIG_AHBOT_USE_WEIGHTED_ITEM_SELECTION, "AuctionHouseBot.UseWeightedSelection", true);
+
+    // === NEW: Logarithmic pricing multipliers ===
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_POTION, "AuctionHouseBot.Pricing.Log.Potion", 0.8f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_ELIXIR, "AuctionHouseBot.Pricing.Log.Elixir", 0.9f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_FLASK, "AuctionHouseBot.Pricing.Log.Flask", 0.95f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_SCROLL, "AuctionHouseBot.Pricing.Log.Scroll", 0.7f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_FOOD, "AuctionHouseBot.Pricing.Log.Food", 0.75f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_BANDAGE, "AuctionHouseBot.Pricing.Log.Bandage", 0.7f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_CLOTH, "AuctionHouseBot.Pricing.Log.Cloth", 0.85f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_LEATHER, "AuctionHouseBot.Pricing.Log.Leather", 0.85f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_METAL, "AuctionHouseBot.Pricing.Log.Metal", 0.85f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_HERB, "AuctionHouseBot.Pricing.Log.Herb", 0.85f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_ELEMENTAL, "AuctionHouseBot.Pricing.Log.Elemental", 0.9f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_ENCHANTING, "AuctionHouseBot.Pricing.Log.Enchanting", 0.9f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_JEWELCRAFTING, "AuctionHouseBot.Pricing.Log.Jewelcrafting", 0.9f);
+    SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_GEM, "AuctionHouseBot.Pricing.Log.Gem", 0.92f);
+
+    // === NEW: Subclass priorities (Trade Goods) ===
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_CLOTH_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Cloth", 8, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_LEATHER_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Leather", 7, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_METAL_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Metal", 8, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_MEAT_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Meat", 5, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_HERB_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Herb", 9, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_ELEMENTAL_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Elemental", 6, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_ENCHANTING_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Enchanting", 7, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_JEWELCRAFTING_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Jewelcrafting", 6, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_PARTS_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Parts", 4, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_DEVICES_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Devices", 3, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_EXPLOSIVES_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Explosives", 4, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_MATERIALS_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Materials", 5, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_OTHER_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.Other", 3, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_ARMOR_ENCHANT_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.ArmorEnchant", 5, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_TRADEGOOD_WEAPON_ENCHANT_PRIORITY, "AuctionHouseBot.Subclass.TradeGood.WeaponEnchant", 5, 10);
+
+    // === NEW: Subclass priorities (Consumables) ===
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_CONSUMABLE_POTION_PRIORITY, "AuctionHouseBot.Subclass.Consumable.Potion", 8, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_CONSUMABLE_ELIXIR_PRIORITY, "AuctionHouseBot.Subclass.Consumable.Elixir", 7, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_CONSUMABLE_FLASK_PRIORITY, "AuctionHouseBot.Subclass.Consumable.Flask", 9, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_CONSUMABLE_SCROLL_PRIORITY, "AuctionHouseBot.Subclass.Consumable.Scroll", 5, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_CONSUMABLE_FOOD_PRIORITY, "AuctionHouseBot.Subclass.Consumable.Food", 6, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_CONSUMABLE_BANDAGE_PRIORITY, "AuctionHouseBot.Subclass.Consumable.Bandage", 4, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_CONSUMABLE_ITEM_ENHANCEMENT_PRIORITY, "AuctionHouseBot.Subclass.Consumable.ItemEnhancement", 6, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_CONSUMABLE_OTHER_PRIORITY, "AuctionHouseBot.Subclass.Consumable.Other", 3, 10);
+
+    // === NEW: Subclass priorities (Gems) ===
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_GEM_RED_PRIORITY, "AuctionHouseBot.Subclass.Gem.Red", 8, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_GEM_BLUE_PRIORITY, "AuctionHouseBot.Subclass.Gem.Blue", 7, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_GEM_YELLOW_PRIORITY, "AuctionHouseBot.Subclass.Gem.Yellow", 7, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_GEM_PURPLE_PRIORITY, "AuctionHouseBot.Subclass.Gem.Purple", 6, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_GEM_GREEN_PRIORITY, "AuctionHouseBot.Subclass.Gem.Green", 6, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_GEM_ORANGE_PRIORITY, "AuctionHouseBot.Subclass.Gem.Orange", 6, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_GEM_META_PRIORITY, "AuctionHouseBot.Subclass.Gem.Meta", 9, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_GEM_SIMPLE_PRIORITY, "AuctionHouseBot.Subclass.Gem.Simple", 3, 10);
+    SetConfigMax(CONFIG_AHBOT_SUBCLASS_GEM_PRISMATIC_PRIORITY, "AuctionHouseBot.Subclass.Gem.Prismatic", 5, 10);
 }
 
 char const* AuctionBotConfig::GetHouseTypeName(AuctionHouseType houseType)
@@ -408,6 +530,24 @@ uint32 AuctionBotConfig::GetConfigItemQualityAmount(AuctionQuality quality) cons
     }
 }
 
+uint32 AuctionBotConfig::GetDropTierListWeight(uint8 tier) const
+{
+    if (tier >= 13)
+        return 50;
+
+    AuctionBotConfigUInt32Values configIndex = static_cast<AuctionBotConfigUInt32Values>(CONFIG_AHBOT_TIER_WEIGHT_50_PERCENT + tier);
+    return GetConfig(configIndex);
+}
+
+float AuctionBotConfig::GetDropTierPriceMultiplier(uint8 tier) const
+{
+    if (tier >= 13)
+        return 1.0f;
+
+    AuctionBotConfigFloatValues configIndex = static_cast<AuctionBotConfigFloatValues>(CONFIG_AHBOT_TIER_PRICE_50_PERCENT + tier);
+    return GetConfig(configIndex);
+}
+
 AuctionHouseBot::AuctionHouseBot(): _buyer(nullptr), _seller(nullptr), _operationSelector(0)
 {
 }
@@ -478,6 +618,9 @@ void AuctionHouseBot::SetItemsAmountForQuality(AuctionQuality quality, uint32 va
 void AuctionHouseBot::ReloadAllConfig()
 {
     sAuctionBotConfig->Reload();
+    sAuctionBotData->Reload();
+    sAuctionBotFilter->Reload();
+    sAuctionBotPricing->Reload();
     InitializeAgents();
 }
 
@@ -507,6 +650,57 @@ void AuctionHouseBot::PrepareStatusInfos(std::unordered_map<AuctionHouseType, Au
             }
         }
     }
+}
+
+void AuctionHouseBot::PrepareExtendedStatusInfos(std::unordered_map<AuctionHouseType, AuctionHouseBotExtendedStatusInfo>& statusInfo)
+{
+    for (AuctionHouseType ahType : EnumUtils::Iterate<AuctionHouseType>())
+    {
+        statusInfo[ahType].ItemsCount = 0;
+
+        for (AuctionQuality quality : EnumUtils::Iterate<AuctionQuality>())
+            statusInfo[ahType].QualityInfo[quality] = 0;
+
+        for (uint8 tier = 0; tier < 13; ++tier)
+            statusInfo[ahType].TierInfo[tier] = 0;
+
+        AuctionHouseObject* auctionHouse = sAuctionMgr->GetAuctionsMap(ahType);
+        for (AuctionHouseObject::AuctionEntryMap::const_iterator itr = auctionHouse->GetAuctionsBegin(); itr != auctionHouse->GetAuctionsEnd(); ++itr)
+        {
+            AuctionEntry* auctionEntry = itr->second;
+            if (Item* item = sAuctionMgr->GetAItem(auctionEntry->itemGUIDLow))
+            {
+                ItemTemplate const* prototype = item->GetTemplate();
+                if (!auctionEntry->owner || sAuctionBotConfig->IsBotChar(auctionEntry->owner))
+                {
+                    if (prototype->Quality < MAX_AUCTION_QUALITY)
+                        ++statusInfo[ahType].QualityInfo[AuctionQuality(prototype->Quality)];
+
+                    // Get drop tier info
+                    if (AuctionBotItemInfo const* info = sAuctionBotData->GetItemInfo(prototype->ItemId))
+                        ++statusInfo[ahType].TierInfo[static_cast<uint8>(info->DropTier)];
+
+                    ++statusInfo[ahType].ItemsCount;
+                }
+            }
+        }
+    }
+}
+
+void AuctionHouseBot::ForceUpdateCycle()
+{
+    TC_LOG_INFO("ahbot", "AHBot: Forcing update cycle...");
+    Update();
+}
+
+void AuctionHouseBot::EmptyAuctions(AuctionHouseType houseType)
+{
+    TC_LOG_INFO("ahbot", "AHBot: Emptying {} auction house...", AuctionBotConfig::GetHouseTypeName(houseType));
+
+    AuctionHouseObject* auctionHouse = sAuctionMgr->GetAuctionsMap(houseType);
+    for (AuctionHouseObject::AuctionEntryMap::const_iterator itr = auctionHouse->GetAuctionsBegin(); itr != auctionHouse->GetAuctionsEnd(); ++itr)
+        if (!itr->second->owner || sAuctionBotConfig->IsBotChar(itr->second->owner))
+            itr->second->expire_time = GameTime::GetGameTime();
 }
 
 void AuctionHouseBot::Rebuild(bool all)
