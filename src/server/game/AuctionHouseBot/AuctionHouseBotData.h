@@ -103,6 +103,9 @@ public:
     bool IsRecipeProducedItem(uint32 itemId) const;
     bool IsQuestRewardItem(uint32 itemId) const;
 
+    // Get drop tier for an item (returns TIER_NO_DROP if unknown)
+    DropRateTier GetItemDropTier(uint32 itemId) const;
+
     // Get tier statistics for debugging
     uint32 GetItemCountForTier(DropRateTier tier) const;
     uint32 GetTotalTrackedItems() const { return static_cast<uint32>(_itemInfoCache.size()); }

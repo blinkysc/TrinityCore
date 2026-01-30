@@ -38,49 +38,6 @@ static std::unordered_map<AuctionQuality, uint32> const ahbotQualityLangIds =
     { AUCTION_QUALITY_YELLOW, LANG_AHBOT_QUALITY_YELLOW }
 };
 
-// Helper function to get drop tier name
-static char const* GetDropTierName(DropRateTier tier)
-{
-    switch (tier)
-    {
-        case DropRateTier::TIER_50_PERCENT:     return ">=50%";
-        case DropRateTier::TIER_10_PERCENT:     return ">=10%";
-        case DropRateTier::TIER_5_PERCENT:      return ">=5%";
-        case DropRateTier::TIER_2_PERCENT:      return ">=2%";
-        case DropRateTier::TIER_1_PERCENT:      return ">=1%";
-        case DropRateTier::TIER_0_5_PERCENT:    return ">=0.5%";
-        case DropRateTier::TIER_0_2_PERCENT:    return ">=0.2%";
-        case DropRateTier::TIER_0_1_PERCENT:    return ">=0.1%";
-        case DropRateTier::TIER_0_05_PERCENT:   return ">=0.05%";
-        case DropRateTier::TIER_0_02_PERCENT:   return ">=0.02%";
-        case DropRateTier::TIER_0_01_PERCENT:   return ">=0.01%";
-        case DropRateTier::TIER_0_005_PERCENT:  return "<0.01%";
-        case DropRateTier::TIER_NO_DROP:        return "No drop data";
-        default:                                return "Unknown";
-    }
-}
-
-// Helper function to get filter reason name
-static char const* GetFilterReasonName(AHBotFilterReason reason)
-{
-    switch (reason)
-    {
-        case AHBotFilterReason::FILTER_REASON_OK:                return "OK";
-        case AHBotFilterReason::FILTER_REASON_BLACKLISTED:       return "Blacklisted";
-        case AHBotFilterReason::FILTER_REASON_QUALITY_TOO_LOW:   return "Quality too low";
-        case AHBotFilterReason::FILTER_REASON_QUALITY_TOO_HIGH:  return "Quality too high";
-        case AHBotFilterReason::FILTER_REASON_BINDING:           return "Binding type";
-        case AHBotFilterReason::FILTER_REASON_PRICE_TOO_LOW:     return "Price too low";
-        case AHBotFilterReason::FILTER_REASON_PRICE_TOO_HIGH:    return "Price too high";
-        case AHBotFilterReason::FILTER_REASON_LEVEL_TOO_LOW:     return "Level too low";
-        case AHBotFilterReason::FILTER_REASON_LEVEL_TOO_HIGH:    return "Level too high";
-        case AHBotFilterReason::FILTER_REASON_NAME_FILTERED:     return "Name filtered";
-        case AHBotFilterReason::FILTER_REASON_CLASS_DISABLED:    return "Class disabled";
-        case AHBotFilterReason::FILTER_REASON_NOT_TRADEABLE:     return "Not tradeable";
-        default:                                                 return "Unknown";
-    }
-}
-
 class ahbot_commandscript : public CommandScript
 {
 public:
@@ -249,35 +206,11 @@ public:
     }
 
     // New command: Force update cycle
-    static bool HandleAHBotUpdateCommand(ChatHandler* handler, Optional<std::string> houseArg)
+    static bool HandleAHBotUpdateCommand(ChatHandler* handler, Optional<std::string> /*houseArg*/)
     {
-        if (houseArg)
-        {
-            AuctionHouseType house;
-            std::string houseStr = *houseArg;
-            if (houseStr == "alliance")
-                house = AUCTION_HOUSE_ALLIANCE;
-            else if (houseStr == "horde")
-                house = AUCTION_HOUSE_HORDE;
-            else if (houseStr == "neutral")
-                house = AUCTION_HOUSE_NEUTRAL;
-            else
-            {
-                handler->SendSysMessage("Invalid auction house type. Use: alliance, horde, or neutral");
-                return false;
-            }
-
-            sAuctionBotConfig->ForceUpdateCycle(house);
-            handler->PSendSysMessage("AHBot: Forced update cycle for %s auction house", AuctionBotConfig::GetHouseTypeName(house));
-        }
-        else
-        {
-            // Update all houses
-            for (uint8 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
-                sAuctionBotConfig->ForceUpdateCycle(AuctionHouseType(i));
-            handler->SendSysMessage("AHBot: Forced update cycle for all auction houses");
-        }
-
+        // ForceUpdateCycle updates all houses at once
+        sAuctionBot->ForceUpdateCycle();
+        handler->SendSysMessage("AHBot: Forced update cycle for all auction houses");
         return true;
     }
 
@@ -300,16 +233,15 @@ public:
                 return false;
             }
 
-            uint32 count = sAuctionBotConfig->EmptyAuctions(house);
-            handler->PSendSysMessage("AHBot: Removed %u auctions from %s auction house", count, AuctionBotConfig::GetHouseTypeName(house));
+            sAuctionBot->EmptyAuctions(house);
+            handler->PSendSysMessage("AHBot: Emptied auctions from %s auction house", AuctionBotConfig::GetHouseTypeName(house));
         }
         else
         {
             // Empty all houses
-            uint32 total = 0;
             for (uint8 i = 0; i < MAX_AUCTION_HOUSE_TYPE; ++i)
-                total += sAuctionBotConfig->EmptyAuctions(AuctionHouseType(i));
-            handler->PSendSysMessage("AHBot: Removed %u auctions from all auction houses", total);
+                sAuctionBot->EmptyAuctions(AuctionHouseType(i));
+            handler->SendSysMessage("AHBot: Emptied auctions from all auction houses");
         }
 
         return true;
@@ -367,11 +299,11 @@ public:
         }
 
         DropRateTier tier = sAuctionBotData->GetItemDropTier(itemId);
-        uint32 listWeight = sAuctionBotConfig->GetDropTierListWeight(tier);
-        float priceMultiplier = sAuctionBotConfig->GetDropTierPriceMultiplier(tier);
+        uint32 listWeight = sAuctionBotConfig->GetDropTierListWeight(static_cast<uint8>(tier));
+        float priceMultiplier = sAuctionBotConfig->GetDropTierPriceMultiplier(static_cast<uint8>(tier));
 
         handler->PSendSysMessage("=== Drop Tier Info for [%s] (ID: %u) ===", proto->Name1.c_str(), itemId);
-        handler->PSendSysMessage("Drop Tier: %s (Tier %u)", GetDropTierName(tier), static_cast<uint8>(tier));
+        handler->PSendSysMessage("Drop Tier: %s (Tier %u)", ::GetDropTierName(tier), static_cast<uint8>(tier));
         handler->PSendSysMessage("List Weight: %u, Price Multiplier: %.2f", listWeight, priceMultiplier);
 
         // Additional info from data manager
@@ -402,10 +334,10 @@ public:
             return false;
         }
 
-        AHBotFilterReason reason = sAuctionBotFilter->IsItemAllowed(itemId);
+        AHBotFilterReason reason = sAuctionBotFilter->CheckItem(itemId);
 
         handler->PSendSysMessage("=== Filter Status for [%s] (ID: %u) ===", proto->Name1.c_str(), itemId);
-        handler->PSendSysMessage("Filter Result: %s", GetFilterReasonName(reason));
+        handler->PSendSysMessage("Filter Result: %s", ::GetFilterReasonName(reason));
 
         if (sAuctionBotData->IsItemBlacklisted(itemId))
             handler->SendSysMessage("Item is BLACKLISTED");
@@ -483,12 +415,12 @@ public:
         handler->PSendSysMessage("Item ID: %u", itemId);
 
         // Filter status
-        AHBotFilterReason filterResult = sAuctionBotFilter->IsItemAllowed(itemId);
-        handler->PSendSysMessage("Filter: %s", GetFilterReasonName(filterResult));
+        AHBotFilterReason filterResult = sAuctionBotFilter->CheckItem(itemId);
+        handler->PSendSysMessage("Filter: %s", ::GetFilterReasonName(filterResult));
 
         // Drop tier
         DropRateTier tier = sAuctionBotData->GetItemDropTier(itemId);
-        handler->PSendSysMessage("Drop Tier: %s", GetDropTierName(tier));
+        handler->PSendSysMessage("Drop Tier: %s", ::GetDropTierName(tier));
 
         // Pricing
         AHBotPriceResult price = sAuctionBotPricing->CalculatePrice(proto, 1, AUCTION_HOUSE_NEUTRAL);
@@ -502,7 +434,7 @@ public:
         // Blacklist status
         if (sAuctionBotData->IsItemBlacklisted(itemId))
             handler->SendSysMessage("Status: BLACKLISTED");
-        else if (filterResult == AHBotFilterReason::FILTER_REASON_OK)
+        else if (filterResult == AHBotFilterReason::FILTER_NONE)
             handler->SendSysMessage("Status: ALLOWED for AH");
         else
             handler->SendSysMessage("Status: FILTERED OUT");

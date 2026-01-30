@@ -196,10 +196,7 @@ void AuctionBotDataMgr::AddToBlacklist(uint32 itemId, uint8 reason)
     _blacklistedItems.insert(itemId);
 
     // Also persist to database
-    WorldDatabasePreparedStatement* stmt = WorldDatabase.GetPreparedStatement(WORLD_INS_AHBOT_BLACKLIST);
-    stmt->setUInt32(0, itemId);
-    stmt->setUInt8(1, reason);
-    WorldDatabase.Execute(stmt);
+    WorldDatabase.PExecute("INSERT IGNORE INTO auctionhousebot_blacklist (item, reason) VALUES ({}, {})", itemId, reason);
 }
 
 void AuctionBotDataMgr::RemoveFromBlacklist(uint32 itemId)
@@ -207,9 +204,7 @@ void AuctionBotDataMgr::RemoveFromBlacklist(uint32 itemId)
     _blacklistedItems.erase(itemId);
 
     // Also remove from database
-    WorldDatabasePreparedStatement* stmt = WorldDatabase.GetPreparedStatement(WORLD_DEL_AHBOT_BLACKLIST);
-    stmt->setUInt32(0, itemId);
-    WorldDatabase.Execute(stmt);
+    WorldDatabase.PExecute("DELETE FROM auctionhousebot_blacklist WHERE item = {}", itemId);
 }
 
 bool AuctionBotDataMgr::IsRecipeProducedItem(uint32 itemId) const
@@ -220,6 +215,14 @@ bool AuctionBotDataMgr::IsRecipeProducedItem(uint32 itemId) const
 bool AuctionBotDataMgr::IsQuestRewardItem(uint32 itemId) const
 {
     return _questRewardItems.count(itemId) > 0;
+}
+
+DropRateTier AuctionBotDataMgr::GetItemDropTier(uint32 itemId) const
+{
+    AuctionBotItemInfo const* info = GetItemInfo(itemId);
+    if (info)
+        return info->DropTier;
+    return DropRateTier::TIER_NO_DROP;
 }
 
 uint32 AuctionBotDataMgr::GetItemCountForTier(DropRateTier tier) const

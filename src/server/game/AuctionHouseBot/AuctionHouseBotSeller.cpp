@@ -1111,7 +1111,7 @@ uint32 AuctionBotSeller::GetItemListWeight(uint32 itemId, ItemTemplate const* pr
 
     // Get base weight from drop tier
     DropRateTier tier = sAuctionBotData->GetItemDropTier(itemId);
-    uint32 tierWeight = sAuctionBotConfig->GetDropTierListWeight(tier);
+    uint32 tierWeight = sAuctionBotConfig->GetDropTierListWeight(static_cast<uint8>(tier));
 
     // Apply any subclass-specific multipliers if configured
     // For now, use the tier weight directly
@@ -1124,8 +1124,8 @@ bool AuctionBotSeller::IsItemAllowedForSale(ItemTemplate const* proto) const
         return false;
 
     // Use the filter system if available
-    AHBotFilterReason reason = sAuctionBotFilter->IsItemAllowed(proto->ItemId);
-    return reason == AHBotFilterReason::FILTER_REASON_OK;
+    AHBotFilterReason reason = sAuctionBotFilter->CheckItem(proto->ItemId);
+    return reason == AHBotFilterReason::FILTER_NONE;
 }
 
 void AuctionBotSeller::SetPricesOfItemAdvanced(ItemTemplate const* itemProto, AuctionHouseType houseType, uint32 stackCount, uint32& buyoutPrice, uint32& bidPrice)

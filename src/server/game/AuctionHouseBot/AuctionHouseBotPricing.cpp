@@ -361,7 +361,6 @@ float AuctionBotPricing::GetLogarithmicMultiplier(ItemTemplate const* proto, uin
             case ITEM_SUBCLASS_SCROLL:
                 logFactor = _config.LogarithmicMultiplierScroll;
                 break;
-            case ITEM_SUBCLASS_FOOD:
             case ITEM_SUBCLASS_FOOD_DRINK:
                 logFactor = _config.LogarithmicMultiplierFood;
                 break;

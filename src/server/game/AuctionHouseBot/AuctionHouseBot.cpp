@@ -373,7 +373,7 @@ void AuctionBotConfig::GetConfigFromFile()
     SetConfig(CONFIG_AHBOT_PRICING_USE_LOGARITHMIC, "AuctionHouseBot.Pricing.UseLogarithmic", true);
     SetConfig(CONFIG_AHBOT_FILTER_RECIPE_PRODUCED, "AuctionHouseBot.Filter.RecipeProduced", false);
     SetConfig(CONFIG_AHBOT_FILTER_QUEST_REWARD, "AuctionHouseBot.Filter.QuestReward", false);
-    SetConfig(CONFIG_AHBOT_USE_WEIGHTED_ITEM_SELECTION, "AuctionHouseBot.UseWeightedSelection", true);
+    SetConfig(CONFIG_AHBOT_USE_WEIGHTED_SELECTION, "AuctionHouseBot.UseWeightedSelection", true);
 
     // === NEW: Logarithmic pricing multipliers ===
     SetConfig(CONFIG_AHBOT_LOG_MULTIPLIER_POTION, "AuctionHouseBot.Pricing.Log.Potion", 0.8f);
