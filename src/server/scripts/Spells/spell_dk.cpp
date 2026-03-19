@@ -895,7 +895,7 @@ class spell_dk_death_strike : public SpellScript
         if (Unit* target = GetHitUnit())
         {
             uint32 count = target->GetDiseasesByCaster(caster->GetGUID());
-            int32 bp = int32(count * caster->CountPctFromMaxHealth(int32(GetEffectInfo(EFFECT_0).DamageMultiplier)));
+            int32 bp = int32(count * caster->CountPctFromMaxHealth(int32(GetEffectInfo(EFFECT_0).ChainAmplitude)));
             // Improved Death Strike
             if (AuraEffect const* aurEff = caster->GetAuraEffect(SPELL_AURA_ADD_PCT_MODIFIER, SPELLFAMILY_DEATHKNIGHT, DK_ICON_ID_IMPROVED_DEATH_STRIKE, 0))
                 AddPct(bp, caster->CalculateSpellDamage(aurEff->GetSpellInfo()->GetEffect(EFFECT_2)));
@@ -1710,7 +1710,7 @@ class spell_dk_raise_dead : public SpellScript
     {
         // No corpse found, take reagents
         if (!_corpse)
-            GetCaster()->CastSpell(GetCaster(), SPELL_DK_RAISE_DEAD_USE_REAGENT, TriggerCastFlags(TRIGGERED_FULL_MASK & ~TRIGGERED_IGNORE_POWER_AND_REAGENT_COST));
+            GetCaster()->CastSpell(GetCaster(), SPELL_DK_RAISE_DEAD_USE_REAGENT, TRIGGERED_FULL_MASK & ~TRIGGERED_IGNORE_POWER_AND_REAGENT_COST);
     }
 
     uint32 GetGhoulSpellId()
@@ -2758,7 +2758,7 @@ class spell_dk_dancing_rune_weapon : public AuraScript
             return;
 
         if (runeWeapon->IsInCombat() && runeWeapon->GetVictim())
-            runeWeapon->CastSpell(runeWeapon->GetVictim(), procSpell->Id, CastSpellExtraArgs(TriggerCastFlags::TRIGGERED_IGNORE_POWER_AND_REAGENT_COST));
+            runeWeapon->CastSpell(runeWeapon->GetVictim(), procSpell->Id, TRIGGERED_IGNORE_POWER_AND_REAGENT_COST);
     }
 
     void Register() override
